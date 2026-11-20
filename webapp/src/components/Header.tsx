@@ -1,112 +1,22 @@
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-
-import { Transition } from 'react-transition-group';
-import { WRAP_DISPLAY_BREAKPOINT } from 'static/static';
-import styled from 'styled-components';
-
-const Container = styled.div`
-  padding: 0 5px 25px 5px;
-  display: flex;
-  justify-content: center;
-
-  @media screen and (max-width: ${WRAP_DISPLAY_BREAKPOINT}) {
-    flex-flow: column;
-
-    > * {
-      margin: 0 auto;
-    }
-  }
-`;
-
-const Icon = styled.div`
-  cursor: pointer;
-
-  > * {
-    margin: 0;
-    font-family: 'Montserrat', sans-serif;
-  }
-
-  > h1 {
-    font-family: 'Montserrat', sans-serif;
-    font-weight: 600;
-    font-size: 52px;
-  }
-
-  > h2 {
-    font-weight: 300;
-    font-size: 14px;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-  }
-`;
-
-const Controls = styled.div`
-  display: flex;
-  align-items: center;
-  margin-left: 50px;
-
-  @media screen and (max-width: ${WRAP_DISPLAY_BREAKPOINT}) {
-    margin: 20px auto 10px auto;
-  }
-`;
-
-const LinkWrapper = styled(Link)<{ state: string }>`
-  position: relative;
-  font-family: 'Montserrat', sans-serif;
-  font-size: 18px;
-  text-transform: lowercase;
-  text-decoration: none;
-
-  margin-right: 20px;
-  &:last-child {
-    margin-right: 0px;
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: -10px;
-    left: 0;
-    width: ${(p) =>
-      p.state === 'entering' || p.state === 'entered' ? 100 : 0}%;
-    margin-left: ${(p) => (p.state === 'exiting' ? 100 : 0)}%;
-    height: 5px;
-    background-color: currentColor;
-    transition: all 0.2s ease;
-  }
-`;
-
-const ControlLink: React.FC<{ to: string; title: string }> = ({
-  to,
-  title,
-}) => {
-  const location = useLocation();
-
-  return (
-    <Transition in={location.pathname === to} timeout={200}>
-      {(state) => (
-        <LinkWrapper to={to} state={state}>
-          {title}
-        </LinkWrapper>
-      )}
-    </Transition>
-  );
-};
-
+import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import SiteService, { GalleryModel } from 'services/SiteService';
 export const Header: React.FC = () => {
   const navigate = useNavigate();
-
-  return (
-    <Container>
-      <Icon onClick={() => navigate('/')}>
-        <h1>zekro</h1>
-        <h2>Photography</h2>
-      </Icon>
-      <Controls>
-        <ControlLink to="/" title="Gallery" />
-        <ControlLink to="/about" title="About" />
-        <ControlLink to="/contact" title="Contact" />
-      </Controls>
-    </Container>
-  );
+  const [title, setTitle] = useState('Photolio');
+  const [tagline, setTagline] = useState('Photography');
+  const [galleries, setGalleries] = useState<GalleryModel[]>([]);
+  useEffect(() => {
+    SiteService.getPublicSite().then((site) => { setTitle(site.title); setTagline(site.tagline || 'Photography'); setGalleries(site.galleries); }).catch(() => undefined);
+  }, []);
+  return <header style={{ padding: '12px 12px 28px', display: 'flex', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', gap: 24 }}>
+    <div onClick={() => navigate('/')} style={{ cursor: 'pointer', textAlign: 'center' }}>
+      <h1 style={{ margin: 0, fontSize: 38 }}>{title}</h1><div style={{ letterSpacing: '.2em', fontSize: 11, textTransform: 'uppercase' }}>{tagline}</div>
+    </div>
+    <nav style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+      <Link to="/">Home</Link><Link to="/about">About</Link><Link to="/contact">Contact</Link>
+      {galleries.map((gallery) => <Link key={gallery.slug} to={'/gallery/' + encodeURIComponent(gallery.slug)}>{gallery.title}</Link>)}
+      <Link to="/admin">Admin</Link>
+    </nav>
+  </header>;
 };

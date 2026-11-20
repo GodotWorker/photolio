@@ -50,7 +50,7 @@ where
     fn set(&self, key: &str, val: &T) -> Result<()> {
         let val = serde_json::ser::to_string(val)?;
         let mut conn = self.client.get_connection()?;
-        conn.set(Self::key(key), val)?;
+        let _: () = conn.set(Self::key(key), val)?;
         Ok(())
     }
 
@@ -58,7 +58,7 @@ where
         let mut conn = self.client.get_connection()?;
         let keys: Vec<String> = conn.keys(Self::key("*"))?;
         info!("Cleaning up {} entries ...", keys.len());
-        conn.del(keys)?;
+        let _: usize = conn.del(keys)?;
         Ok(())
     }
 }

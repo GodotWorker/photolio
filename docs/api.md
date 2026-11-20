@@ -1,68 +1,37 @@
 # API Documentation
 
-## Models
+## Public endpoints
 
-```ts
+- \`GET /site\` — public site details, theme, social links and gallery list.
+- \`GET /images\` — list all photo metadata.
+- \`GET /images?gallery=SLUG\` — list photos in one gallery.
+- \`GET /images/{id}\` — image bytes.
+- \`GET /images/{id}/meta\` — metadata.
+- \`GET /images/{id}/thumbnail?width=640\` — scaled thumbnail.
+
+## Admin endpoints
+
+All admin endpoints require \`Authorization: Bearer YOUR_ADMIN_KEY\`.
+
+- \`GET /admin/site\` — site settings, galleries and recent activity.
+- \`PUT /admin/site\` — update site details, theme, contact information and social links.
+- \`GET /admin/dashboard\` — photo/gallery counts, quota usage and recent activity.
+- \`POST /admin/galleries\` — create or update a gallery. JSON body: \`{"slug":"wildlife","title":"Wildlife","description":"Animals and nature"}\`.
+- \`POST /admin/upload?gallery=wildlife&filename=photo.jpg\` — stream one image as the raw request body. Repeat for multiple files.
+
+The upload endpoint restricts file extensions and checks the configured total storage quota before and during file streaming.
+
+## Image metadata
+
+\`\`\`ts
 type ImageModel = {
   id: string;
   name: string;
   group?: string;
   timestamp: string;
   blurhash: BlurHash;
-  dimensions: Dimensions;
+  dimensions: { width: number; height: number };
   ratio: number;
   exif?: ExifModel;
 };
-
-type Dimensions = {
-  width: number;
-  height: number;
-};
-
-type BlurHash = {
-  hash: string;
-  components: Dimensions;
-};
-
-type ExifModel = {
-  fstop?: string;
-  iso?: string;
-  exposuretime?: string;
-  taken?: string;
-  lensmodel?: string;
-  lensmake?: string;
-  bodymodel?: string;
-  bodymake?: string;
-};
-```
-
-## Endpoints
-
-### `GET /images`
-
-Returns a list of all images and their metadata.
-
-#### Response
-
-```ts
-type Response = ImageModel[];
-```
-
-### `GET /images/{id}`
-
-Returns the binary image data of the given image by `id`.
-
-### `GET /images/{id}/meta`
-
-Returns the metadata of a given image by `id`.
-
-### `GET /images/{id}/thumbnail`
-
-Scales down the image by the given size and returns the results binary data. The `height` and or `width` of the resulting image is passed via query parameter where at least one of them must me larger than `0`. The aspect ratio of the image is always preserved. If both `width` and `height` is given, the lower of both parameters is chosen for downscaling.
-
-#### Query Parameters
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `width` | `number` | `0` | Maximum width in pixel. |
-| `height` | `number` | `0` | Maximum height in pixel. |
+\`\`\`

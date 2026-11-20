@@ -1,61 +1,50 @@
-# photolio
+# Photolio
 
-A self-hosted light weight web gallery to show my photography work on my web page.
+A self-hosted photography website with managed galleries, customizable site details and themes, a browser-based admin area, upload activity and persistent photo storage.
 
-This service is **not** a CMS. By passing a storage location via the config, it is used to list and dispaly images in this storage location as well as generating and serving thumbnails and metadata of the images.
+## Run with Docker Compose
 
-In the defines storage location, two directories are creates. `content` and `thumbnails`. The `thumbnails` directory contains pre-generated thumbnails of the images. The `content` directory contains the images. You can put your images in sub-directories to visually group them together in the frontend.
+Docker Compose builds the backend and frontend images directly. You do not need Make or a separate manual build command.
 
-Example:
-```
-content/
-    Crete 2023/
-        DSC07476.png
-        DSC07477.png
-        DSC07478.png
-    Prague 2021/
-        DSC06231.png
-        DSC06232.png
-    DSC04176.png
-    DSC04177.png
-```
+1. Copy the example environment file: `cp .env.example .env`
+2. Edit `.env` and replace `PH_ADMIN_KEY` with a long, unique secret.
+3. Start the services: `docker compose up -d --build`
+4. Open `http://YOUR-SERVER-IP:8080` and visit `/admin` to sign in.
 
-## Demo
+The webapp container serves the site and proxies `/api` requests to the backend. Only the webapp port is published. Originals, thumbnails and site settings are stored in the persistent Docker volume `photolio_data`.
 
-[**Here**](https://gallery.zekro.de) you can find the deployment of my gallery.
+To update after pulling changes, run `docker compose up -d --build`. Stop services without deleting photo data using `docker compose down`.
 
-https://github.com/zekroTJA/photolio/assets/16734205/650463d0-3052-4333-a68f-1c9e3f1e7686
+## Admin features
 
-## Setup
+- Website title, tagline, about text, contact email and phone.
+- Four themes: Classic, Dark, Warm and Editorial.
+- Website, Instagram, YouTube, Facebook and TikTok links.
+- Separate public galleries with titles, descriptions and individual `/gallery/SLUG` pages.
+- Multi-photo uploads directly into a selected gallery.
+- Recent activity feed and storage usage dashboard.
 
-If you want to set up this service for yourself, please consider the following steps to get started.
+## 100 GB photo storage quota
 
-### Backend Setup
+The backend enforces a total photo quota of **100,000,000,000 bytes (100 GB decimal)** across the site's `content` directory. It checks available space before and while each upload is streamed to disk, and serializes upload requests so simultaneous uploads cannot use the same remaining quota.
 
-You can use the [provided Docker image](https://github.com/zekroTJA/photolio/pkgs/container/photolio-backend) to run the backend service.
+Nginx accepts an individual request body up to 100 GB and streams it to the backend. The backend quota—not this per-request Nginx limit—enforces the total shared photo storage. Generated thumbnails and container logs are not counted in this quota.
 
-```
-$ docker pull ghcr.io/zekrotja/photolio-backend:latest
-```
+## Environment variables
 
-It can either be configured via a config file you can pass via the `--config` flag (see [`config.dev.toml`](config.dev.toml) as example) or via environment variables.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PH_ADMINKEY` | required | Admin key checked by the backend |
+| `PH_STORAGE_LOCATION` | `/var/data` | Persistent storage root |
+| `PH_STORAGE_MAX_BYTES` | `100000000000` | Total photo quota in bytes |
+| `PH_SERVER_ADDRESS` | `0.0.0.0` | Backend bind address |
+| `PH_SERVER_PORT` | `80` | Backend port |
+| `PHOTOLIO_PORT` | `8080` | Host port published by Compose |
 
-| Environment Variable  | Options | Default |
-| ------------- | ------------- | ------------- |
-| `PH_STORAGE_LOCATION` | Location to diskpath where images are saved  | `data` |
-| `PH_SERVER_PORT` | Port on which the webserver listens  | `80` |
-| `PH_SERVER_ADDRESS` | Address/Host on which the webserver listens  | `0.0.0.0` |
-| `PH_SERVER_ALLOWEDORIGIN` | Allowed Origin for cors header  | `*` |
-| `PH_CACHE_TYPE` | Cache Provider (redis or memory)  | `memory` |
-| `PH_CACHE_CACHELOCATION` | Disk location for cache (only memory cache provider)  | *none* |
-| `PH_CACHE_REDISADDRESS` | Connection URL for redis (only redis cache provider)  | *none* |
+For a public server, put Photolio behind HTTPS, for example Cloudflare Tunnel, and keep the admin key secret. The backend port is not published directly.
 
-### Frontend
+## Backups and multi-customer hosting
 
-The front end is a simple React SPA listing and displaying the images by fetching the data via the backend service. **If you want to host the provided frontend, please clone or fork the repository and enter your own information in the ["about"](webapp/src/routes/about/) and ["contact"](webapp/src/routes/contact/) routes or remove them, if desired.**
+Back up the `photolio_data` Docker volume regularly. Do not remove it when updating containers.
 
-You can either build the web app and serve it by building the [provided Dockerfile](Dockerfile.Webapp) or by statically building the web app and run it behind a web server like NGINX or Apache2. Alternatively, you can also update the configuration in the [Web App Pages workflow](.github\workflows\webapp-pages.yml) and serve the web application via GitHub Pages.
-
-On building the web app - either directly, via Docker or via GitHub Actions - **make sure to set the `REACT_APP_API_ROOT_URL` environment variable to the URL of your backend instance.**
-
-You can also implement your own frontend, if you want. [Here](docs/api.md) you can find a brief API documentation for the backend.
+The admin authentication in this edition uses one deployment-wide admin key. For a hosted business with independent customers, deploy one isolated Photolio instance and storage volume per customer. Customer accounts, tenant isolation and subscription management are not part of this single-site edition.

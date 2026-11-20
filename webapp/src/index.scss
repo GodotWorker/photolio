@@ -14,3 +14,20 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+
+.gallery-masonry {
+  display: flex;
+  width: auto;
+  margin-left: -18px;
+}
+.gallery-masonry-column {
+  padding-left: 18px;
+  background-clip: padding-box;
+}
+.gallery-masonry-column > div {
+  margin-bottom: 18px;
+}
+.gallery-masonry img {
+  max-width: 100%;
+}

@@ -1,81 +1,20 @@
-import {
-  LinkDiscord,
-  LinkInstagram,
-  LinkMail,
-  LinkTwitter,
-} from 'components/ContactLinks';
-
-import { Embed } from 'components/Embed';
-import { IconsList } from 'components/IconsList';
+import { useEffect, useState } from 'react';
+import { ALink } from 'components/ALink';
 import { PaddingContainer } from 'components/PaddingContainer';
-import styled from 'styled-components';
-
-const Container = styled.div`
-  padding: 0 20px;
-`;
-
-const ContentContainer = styled.div`
-  padding-bottom: 30px;
-  &:last-child {
-    padding-bottom: 0px;
-  }
-`;
-
-const ContactMe = () => (
-  <ContentContainer>
-    <h1>Feel free to contact me 📫</h1>
-    <p>
-      Just send me a casual DM on instagram or twitter to get in touch with me.
-    </p>
-    <p>
-      Alternatively, you can also join my Discord and DM me there. My Discord
-      username is <Embed>zekrotja</Embed>.
-    </p>
-    <IconsList>
-      <LinkTwitter />
-      <LinkInstagram />
-      <LinkDiscord />
-    </IconsList>
-    <p>
-      If you prefer, you can also send me a mail to{' '}
-      <Embed>contact@zekro.de</Embed>.
-    </p>
-    <IconsList>
-      <LinkMail />
-    </IconsList>
-  </ContentContainer>
-);
-
-const ContentUsage = () => (
-  <ContentContainer>
-    <h1>Content Usage 🖼️</h1>
-    <p>
-      Generally, you are completely allowed to use all of my content for
-      non-public personal use (wallpaper, wallprint, ...).
-    </p>
-    <p>
-      You are also allowed to use my content publicly in your own creations,
-      your page, applicatrion or social media{' '}
-      <strong>if you give proper credits to me</strong>. This includes my name (
-      <Embed>Ringo Hoffmann</Embed>) as well as a link to my web page (
-      <Embed>zekro.de</Embed>) either in the <Embed>About</Embed> section of
-      your web page / application or adjacent to the content post, for example
-      in the instagram image description or tweet content.
-    </p>
-    <p>
-      If you want to use my work for any commercial or advertising application,
-      please contact me so we can negotiate a deal together. 😉
-    </p>
-  </ContentContainer>
-);
-
+import SiteService, { SiteSettings } from 'services/SiteService';
 export const ContactRoute: React.FC = () => {
-  return (
-    <PaddingContainer>
-      <Container>
-        <ContactMe />
-        <ContentUsage />
-      </Container>
-    </PaddingContainer>
-  );
+  const [site, setSite] = useState<SiteSettings>();
+  useEffect(() => { SiteService.getPublicSite().then(setSite).catch(() => undefined); }, []);
+  const links: [string, string][] = [
+    ['Website', site?.website_url || ''], ['Instagram', site?.instagram_url || ''],
+    ['YouTube', site?.youtube_url || ''], ['Facebook', site?.facebook_url || ''], ['TikTok', site?.tiktok_url || ''],
+  ].filter((item): item is [string, string] => Boolean(item[1]));
+  return <PaddingContainer><div style={{ padding: '0 20px' }}>
+    <h1>Get in touch</h1><p>For enquiries, print requests or bookings, use the contact details below.</p>
+    {site?.contact_email && <p>Email: <a href={'mailto:' + site.contact_email}>{site.contact_email}</a></p>}
+    {site?.contact_phone && <p>Phone: <a href={'tel:' + site.contact_phone}>{site.contact_phone}</a></p>}
+    {links.length > 0 && <><h2>Social media and links</h2><div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>
+      {links.map(([label, url]) => <ALink key={label} href={url}>{label}</ALink>)}
+    </div></>}
+  </div></PaddingContainer>;
 };
