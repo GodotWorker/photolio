@@ -8,7 +8,7 @@ export const AboutRoute: React.FC = () => {
   const links: [string, string][] = [
     ['Website', site?.website_url || ''], ['Instagram', site?.instagram_url || ''],
     ['YouTube', site?.youtube_url || ''], ['Facebook', site?.facebook_url || ''], ['TikTok', site?.tiktok_url || ''],
-  ].filter((item) => Boolean(item[1]));
+  ].filter((item): item is [string, string] => Boolean(item[1]));
   return <PaddingContainer><div style={{ textAlign: 'justify', padding: '0 30px' }}>
     <h1>About {site?.title || 'me'}</h1><p>{site?.about || 'More information coming soon.'}</p>
     {links.length > 0 && <><h2>Find me online</h2><div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>

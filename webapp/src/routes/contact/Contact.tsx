@@ -8,7 +8,7 @@ export const ContactRoute: React.FC = () => {
   const links: [string, string][] = [
     ['Website', site?.website_url || ''], ['Instagram', site?.instagram_url || ''],
     ['YouTube', site?.youtube_url || ''], ['Facebook', site?.facebook_url || ''], ['TikTok', site?.tiktok_url || ''],
-  ].filter((item) => Boolean(item[1]));
+  ].filter((item): item is [string, string] => Boolean(item[1]));
   return <PaddingContainer><div style={{ padding: '0 20px' }}>
     <h1>Get in touch</h1><p>For enquiries, print requests or bookings, use the contact details below.</p>
     {site?.contact_email && <p>Email: <a href={'mailto:' + site.contact_email}>{site.contact_email}</a></p>}
