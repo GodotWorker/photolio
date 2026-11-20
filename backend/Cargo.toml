@@ -12,7 +12,7 @@ actix-web = "4"
 actix-cors = "0.7"
 kamadak-exif = "0.5"
 blurhash = "0.2"
-chrono = { version = "^0.4", features = ["serde", "rustc-serialize"] }
+chrono = { version = "^0.4", features = ["serde"] }
 image = "0.25"
 threadpool = "1.8"
 num_cpus = "1.0"
