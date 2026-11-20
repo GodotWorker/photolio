@@ -1,192 +1,164 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { API_ROOT, ActivityItem, GalleryModel, SiteSettings } from 'services/SiteService';
-
-type Dashboard = { photo_count: number; gallery_count: number; used_bytes: number; limit_bytes: number; activity: ActivityItem[]; };
-const box: React.CSSProperties = { border: '1px solid rgba(127,127,127,.3)', borderRadius: 12, padding: 20, margin: '18px 0', background: 'rgba(127,127,127,.07)' };
-const field: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, margin: '10px 0', minWidth: 180, flex: 1 };
-const control: React.CSSProperties = { width: '100%', padding: 10, border: '1px solid #9998', borderRadius: 7, background: 'transparent', color: 'inherit', font: 'inherit' };
-const button: React.CSSProperties = { padding: '10px 16px', margin: '8px 8px 0 0', border: 0, borderRadius: 7, background: '#3d7569', color: 'white', fontWeight: 600, cursor: 'pointer' };
-const row: React.CSSProperties = { display: 'flex', gap: 14, flexWrap: 'wrap' };
-const muted: React.CSSProperties = { opacity: .7, fontSize: 13 };
-const emptySettings: SiteSettings = { title: '', tagline: '', about: '', contact_email: '', contact_phone: '', theme: 'classic', website_url: '', instagram_url: '', youtube_url: '', facebook_url: '', tiktok_url: '', galleries: [] };
-const prettyBytes = (bytes: number) => {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']; let value = bytes || 0; let unit = 0;
-  while (value >= 1000 && unit < units.length - 1) { value /= 1000; unit++; }
-  return value.toFixed(unit ? 1 : 0) + ' ' + units[unit];
+use crate::{
+    cache::CacheDriver, images, models::Image, site::{self, Gallery, SiteSettings},
+    storage::Storage, ws::{extractors::token::Token, server::Config},
 };
-
-export const AdminRoute: React.FC = () => {
-  const [token, setToken] = useState(() => window.localStorage.getItem('photolioAdminToken') || '');
-  const [loginKey, setLoginKey] = useState('');
-  const [settings, setSettings] = useState<SiteSettings>(emptySettings);
-  const [dashboard, setDashboard] = useState<Dashboard>();
-  const [galleryTitle, setGalleryTitle] = useState('');
-  const [gallerySlug, setGallerySlug] = useState('');
-  const [galleryDescription, setGalleryDescription] = useState('');
-  const [files, setFiles] = useState<FileList | null>(null);
-  const [uploadGallery, setUploadGallery] = useState('');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const api = async (path: string, init: RequestInit = {}, key = token) => {
-    const response = await fetch(API_ROOT + path, {
-      ...init,
-      headers: { ...(init.headers || {}), Authorization: 'Bearer ' + key },
-    });
-    if (!response.ok) throw new Error((await response.text()) || ('Request failed: ' + response.status));
-    if (response.status === 204) return null;
-    return response.json();
-  };
-  const refresh = async (key: string) => {
-    const results = await Promise.all([api('/admin/site', {}, key), api('/admin/dashboard', {}, key)]);
-    setSettings(results[0] as SiteSettings);
-    setDashboard(results[1] as Dashboard);
-    setUploadGallery((current) => current || (results[0] as SiteSettings).galleries[0]?.slug || '');
-  };
-
-  useEffect(() => {
-    if (!token) return;
-    let active = true;
-    Promise.all([
-      fetch(API_ROOT + '/admin/site', { headers: { Authorization: 'Bearer ' + token } }),
-      fetch(API_ROOT + '/admin/dashboard', { headers: { Authorization: 'Bearer ' + token } }),
-    ]).then(async (responses) => {
-      if (!responses[0].ok || !responses[1].ok) throw new Error('The admin key was rejected.');
-      const values = await Promise.all([responses[0].json(), responses[1].json()]);
-      if (active) {
-        setSettings(values[0]); setDashboard(values[1]);
-        setUploadGallery(values[0].galleries[0]?.slug || '');
-        window.localStorage.setItem('photolioAdminToken', token);
-      }
-    }).catch((reason: Error) => {
-      if (active) { setError(reason.message); setToken(''); window.localStorage.removeItem('photolioAdminToken'); }
-    });
-    return () => { active = false; };
-  }, [token]);
-
-  const login = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError('');
-    try {
-      await refresh(loginKey);
-      window.localStorage.setItem('photolioAdminToken', loginKey);
-      setToken(loginKey); setNotice('Signed in successfully.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not sign in.'); }
-    finally { setBusy(false); }
-  };
-  type SiteField = Exclude<keyof SiteSettings, 'galleries' | 'activity'>;
-  const updateField = (name: SiteField, value: string) => setSettings((s) => ({ ...s, [name]: value }));
-  const saveSettings = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('');
-    try {
-      await api('/admin/site', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
-      await refresh(token); window.dispatchEvent(new Event('photolio-site-updated')); setNotice('Website settings saved.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save settings.'); }
-    finally { setBusy(false); }
-  };
-  const saveGallery = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('');
-    try {
-      await api('/admin/galleries', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: gallerySlug, title: galleryTitle, description: galleryDescription }) });
-      setGalleryTitle(''); setGallerySlug(''); setGalleryDescription(''); await refresh(token); setNotice('Gallery saved.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save gallery.'); }
-    finally { setBusy(false); }
-  };
-  const uploadPhotos = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!files?.length || !uploadGallery) return;
-    setBusy(true); setError(''); setNotice(''); let uploaded = 0;
-    try {
-      for (const file of Array.from(files)) {
-        const query = '?gallery=' + encodeURIComponent(uploadGallery) + '&filename=' + encodeURIComponent(file.name);
-        await api('/admin/upload' + query, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
-        uploaded++;
-      }
-      setFiles(null);
-      const input = document.getElementById('photo-files') as HTMLInputElement | null;
-      if (input) input.value = '';
-      await refresh(token); setNotice(uploaded + ' photo(s) uploaded.');
-    } catch (reason) {
-      setError(uploaded + ' photo(s) uploaded. ' + (reason instanceof Error ? reason.message : 'Upload failed.'));
-      await refresh(token);
-    } finally { setBusy(false); }
-  };
-  const logout = () => { window.localStorage.removeItem('photolioAdminToken'); setToken(''); setDashboard(undefined); setSettings(emptySettings); };
-
-  if (!token) return <main style={{ width: 'min(1000px, calc(100% - 32px))', margin: '0 auto 50px' }}>
-    <h1>Website admin</h1><section style={box}><h2>Sign in</h2><p>Enter the admin key supplied by your website host.</p>
-      <form onSubmit={login}><label style={field}>Admin key<input style={control} type="password" value={loginKey} onChange={(e) => setLoginKey(e.target.value)} required /></label>
-        <button style={button} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form>
-      {error && <p role="alert" style={{ color: '#d55' }}>{error}</p>}
-    </section>
-  </main>;
-
-  const used = dashboard?.used_bytes || 0;
-  const limit = dashboard?.limit_bytes || 100000000000;
-  const percent = Math.min(100, limit ? used / limit * 100 : 0);
-  return <main style={{ width: 'min(1100px, calc(100% - 32px))', margin: '0 auto 60px' }}>
-    <div style={{ ...row, justifyContent: 'space-between', alignItems: 'center' }}><div><h1>Website admin</h1><p style={muted}>Manage your photography website and galleries.</p></div>
-      <button style={{ ...button, background: '#666' }} onClick={logout}>Sign out</button></div>
-    {error && <p role="alert" style={{ color: '#d55' }}>{error}</p>}
-    {notice && <p role="status">{notice}</p>}
-    <section style={box}><h2>Overview</h2><div style={row}>
-      <div style={{ ...box, flex: 1 }}><strong style={{ fontSize: 26 }}>{dashboard?.photo_count || 0}</strong><div style={muted}>Photos</div></div>
-      <div style={{ ...box, flex: 1 }}><strong style={{ fontSize: 26 }}>{dashboard?.gallery_count || 0}</strong><div style={muted}>Galleries</div></div>
-      <div style={{ ...box, flex: 1 }}><strong style={{ fontSize: 26 }}>{prettyBytes(used)}</strong><div style={muted}>Storage used</div></div>
-    </div>
-    <p>{percent.toFixed(1)}% of {prettyBytes(limit)} used</p>
-    <div style={{ height: 10, background: '#8885', borderRadius: 20, overflow: 'hidden' }}><div style={{ height: '100%', width: percent + '%', background: '#3d7569' }} /></div></section>
-
-    <section style={box}><h2>Website details and appearance</h2><form onSubmit={saveSettings}>
-      <div style={row}>
-        <label style={field}>Website title<input style={control} value={settings.title} onChange={(e) => updateField('title', e.target.value)} required /></label>
-        <label style={field}>Tagline<input style={control} value={settings.tagline} onChange={(e) => updateField('tagline', e.target.value)} /></label>
-        <label style={field}>Theme<select style={control} value={settings.theme} onChange={(e) => updateField('theme', e.target.value)}>
-          <option value="classic">Classic</option><option value="dark">Dark</option><option value="warm">Warm</option><option value="editorial">Editorial</option>
-        </select></label>
-      </div><div style={row}>
-        <label style={field}>Contact email<input style={control} type="email" value={settings.contact_email} onChange={(e) => updateField('contact_email', e.target.value)} /></label>
-        <label style={field}>Contact phone<input style={control} value={settings.contact_phone} onChange={(e) => updateField('contact_phone', e.target.value)} /></label>
-      </div><div style={row}>
-        <label style={field}>Website URL<input style={control} type="url" value={settings.website_url} onChange={(e) => updateField('website_url', e.target.value)} /></label>
-        <label style={field}>Instagram URL<input style={control} type="url" value={settings.instagram_url} onChange={(e) => updateField('instagram_url', e.target.value)} /></label>
-        <label style={field}>YouTube URL<input style={control} type="url" value={settings.youtube_url} onChange={(e) => updateField('youtube_url', e.target.value)} /></label>
-      </div><div style={row}>
-        <label style={field}>Facebook URL<input style={control} type="url" value={settings.facebook_url} onChange={(e) => updateField('facebook_url', e.target.value)} /></label>
-        <label style={field}>TikTok URL<input style={control} type="url" value={settings.tiktok_url} onChange={(e) => updateField('tiktok_url', e.target.value)} /></label>
-      </div>
-      <label style={field}>About text<textarea style={{ ...control, minHeight: 110 }} value={settings.about} onChange={(e) => updateField('about', e.target.value)} /></label>
-      <button style={button} disabled={busy}>Save website details</button>
-    </form></section>
-
-    <section style={box}><h2>Galleries</h2><p>Create separate collections such as portraits, wildlife, weddings or travel.</p>
-      <div style={row}>{(settings.galleries || []).map((gallery: GalleryModel) => <div key={gallery.slug} style={{ ...box, flex: 1, minWidth: 180 }}>
-        <strong>{gallery.title}</strong><div style={muted}>/{gallery.slug}</div><p>{gallery.description}</p></div>)}</div>
-      <form onSubmit={saveGallery}><div style={row}>
-        <label style={field}>Gallery title<input style={control} value={galleryTitle} onChange={(e) => {
-          const value = e.target.value; setGalleryTitle(value);
-          if (!gallerySlug) setGallerySlug(value.toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, ''));
-        }} required /></label>
-        <label style={field}>URL slug<input style={control} value={gallerySlug} onChange={(e) => setGallerySlug(e.target.value.toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, ''))} required /></label>
-      </div><label style={field}>Description<textarea style={{ ...control, minHeight: 70 }} value={galleryDescription} onChange={(e) => setGalleryDescription(e.target.value)} /></label>
-        <button style={button} disabled={busy}>Create / update gallery</button></form>
-    </section>
-
-    <section style={box}><h2>Upload photos</h2><form onSubmit={uploadPhotos}>
-      <label style={field}>Destination gallery<select style={control} value={uploadGallery} onChange={(e) => setUploadGallery(e.target.value)} required>
-        {(settings.galleries || []).map((gallery) => <option key={gallery.slug} value={gallery.slug}>{gallery.title}</option>)}
-      </select></label>
-      <label style={field}>Select image files<input id="photo-files" style={control} type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.tiff" multiple onChange={(e) => setFiles(e.target.files)} required /></label>
-      <p style={muted}>JPG, PNG, WebP, GIF and TIFF. Uploads count towards this site's shared 100 GB photo quota.</p>
-      <button style={button} disabled={busy || !files?.length}>{busy ? 'Working…' : 'Upload ' + (files?.length || 0) + ' photo(s)'}</button>
-    </form></section>
-
-    <section style={box}><h2>Recent activity</h2>
-      {(dashboard?.activity || []).length === 0 ? <p style={muted}>No activity yet.</p> :
-        dashboard!.activity.map((item, index) => <div key={item.at + index} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid #8885', padding: '12px 0' }}>
-          <div><strong>{item.action}</strong><div>{item.detail}</div></div><small style={muted}>{new Date(item.at).toLocaleString()}</small>
-        </div>)}
-    </section>
-  </main>;
+use actix_web::{
+    error::{ErrorBadRequest, ErrorInternalServerError, ErrorPayloadTooLarge, ErrorUnauthorized},
+    get, post, put, web::{self, Data, ServiceConfig}, Error, HttpResponse,
 };
+use chrono::Utc;
+use futures::lock::Mutex;
+use futures_util::StreamExt;
+use serde::Deserialize;
+use std::{fs::{self, File}, io::Write, path::Path, sync::Arc};
+
+#[derive(Deserialize)]
+struct SettingsInput {
+    title: String, tagline: String, about: String, contact_email: String, contact_phone: String,
+    theme: String, website_url: String, instagram_url: String, youtube_url: String,
+    facebook_url: String, tiktok_url: String,
+}
+#[derive(Deserialize)]
+struct GalleryInput { slug: String, title: String, description: String }
+#[derive(Deserialize)]
+struct UploadQuery { gallery: String, filename: String }
+
+#[get("/site")]
+pub async fn get_public_site(storage: Data<Storage>) -> Result<HttpResponse, Error> {
+    let settings = SiteSettings::load(&storage).map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().json(settings.public_view()))
+}
+
+#[get("/site")]
+async fn get_admin_site(cfg: Data<Config>, storage: Data<Storage>, token: Token) -> Result<HttpResponse, Error> {
+    check_token(&cfg, &token)?;
+    Ok(HttpResponse::Ok().json(SiteSettings::load(&storage).map_err(ErrorInternalServerError)?))
+}
+
+#[put("/site")]
+async fn update_site(
+    cfg: Data<Config>, storage: Data<Storage>, token: Token, input: web::Json<SettingsInput>,
+) -> Result<HttpResponse, Error> {
+    check_token(&cfg, &token)?;
+    let mut settings = SiteSettings::load(&storage).map_err(ErrorInternalServerError)?;
+    settings.title = input.title.trim().to_string();
+    settings.tagline = input.tagline.trim().to_string();
+    settings.about = input.about.trim().to_string();
+    settings.contact_email = input.contact_email.trim().to_string();
+    settings.contact_phone = input.contact_phone.trim().to_string();
+    settings.theme = match input.theme.as_str() { "dark" | "warm" | "editorial" => input.theme.clone(), _ => "classic".into() };
+    settings.website_url = input.website_url.trim().to_string();
+    settings.instagram_url = input.instagram_url.trim().to_string();
+    settings.youtube_url = input.youtube_url.trim().to_string();
+    settings.facebook_url = input.facebook_url.trim().to_string();
+    settings.tiktok_url = input.tiktok_url.trim().to_string();
+    settings.save(&storage).map_err(ErrorInternalServerError)?;
+    site::record_activity(&storage, "Website updated", "Changed website details or appearance").map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().json(settings.public_view()))
+}
+
+#[get("/dashboard")]
+async fn dashboard(
+    cfg: Data<Config>, storage: Data<Storage>, cache: Data<CacheDriver<Image>>,
+    max_storage_bytes: Data<u64>, token: Token,
+) -> Result<HttpResponse, Error> {
+    check_token(&cfg, &token)?;
+    let settings = SiteSettings::load(&storage).map_err(ErrorInternalServerError)?;
+    let photo_count = images::list(storage.clone().into_inner(), cache.into_inner())
+        .map_err(ErrorInternalServerError)?.len();
+    let used_bytes = storage.content_size().map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "photo_count": photo_count, "gallery_count": settings.galleries.len(),
+        "used_bytes": used_bytes, "limit_bytes": *max_storage_bytes, "activity": settings.activity
+    })))
+}
+
+#[post("/galleries")]
+async fn create_gallery(
+    cfg: Data<Config>, storage: Data<Storage>, token: Token, input: web::Json<GalleryInput>,
+) -> Result<HttpResponse, Error> {
+    check_token(&cfg, &token)?;
+    let slug = input.slug.trim();
+    let title = input.title.trim();
+    if !site::is_safe_gallery_slug(slug) || title.is_empty() || title.len() > 100 {
+        return Err(ErrorBadRequest("invalid gallery name or slug"));
+    }
+    fs::create_dir_all(storage.bucket_path("content").join(slug)).map_err(ErrorInternalServerError)?;
+    let mut settings = SiteSettings::load(&storage).map_err(ErrorInternalServerError)?;
+    let gallery = Gallery { slug: slug.into(), title: title.into(), description: input.description.trim().into() };
+    if let Some(existing) = settings.galleries.iter_mut().find(|g| g.slug == slug) { *existing = gallery.clone(); }
+    else { settings.galleries.push(gallery.clone()); }
+    settings.save(&storage).map_err(ErrorInternalServerError)?;
+    site::record_activity(&storage, "Gallery saved", title).map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Created().json(gallery))
+}
+
+#[post("/upload")]
+async fn upload_image(
+    cfg: Data<Config>, storage: Data<Storage>, cache: Data<CacheDriver<Image>>,
+    max_storage_bytes: Data<u64>, upload_lock: Data<Arc<Mutex<()>>>, token: Token,
+    query: web::Query<UploadQuery>, mut payload: web::Payload,
+) -> Result<HttpResponse, Error> {
+    check_token(&cfg, &token)?;
+    if !site::is_safe_gallery_slug(&query.gallery) { return Err(ErrorBadRequest("invalid gallery")); }
+    if !images::is_image(Path::new(&query.filename)) { return Err(ErrorBadRequest("unsupported image type")); }
+    let settings = SiteSettings::load(&storage).map_err(ErrorInternalServerError)?;
+    if !settings.galleries.iter().any(|g| g.slug == query.gallery) { return Err(ErrorBadRequest("gallery does not exist")); }
+
+    // Serializing uploads prevents concurrent requests from overshooting the total site quota.
+    let _quota_guard = upload_lock.lock().await;
+    let used_before = storage.content_size().map_err(ErrorInternalServerError)?;
+    if used_before >= *max_storage_bytes { return Err(ErrorPayloadTooLarge("storage limit reached")); }
+
+    let original_name = Path::new(&query.filename).file_name().and_then(|s| s.to_str()).unwrap_or("photo");
+    let safe_name: String = original_name.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .take(100).collect();
+    let image_id = format!("{}-{}", Utc::now().timestamp_micros(), safe_name);
+    let gallery_dir = storage.bucket_path("content").join(&query.gallery);
+    fs::create_dir_all(&gallery_dir).map_err(ErrorInternalServerError)?;
+    let file_path = gallery_dir.join(&image_id);
+    let mut file = File::create(&file_path).map_err(ErrorInternalServerError)?;
+    let mut received = 0u64;
+
+    while let Some(chunk) = payload.next().await {
+        let chunk = chunk.map_err(ErrorBadRequest)?;
+        received = received.saturating_add(chunk.len() as u64);
+        if used_before.saturating_add(received) > *max_storage_bytes {
+            drop(file);
+            let _ = fs::remove_file(&file_path);
+            return Err(ErrorPayloadTooLarge("100 GB storage limit reached"));
+        }
+        file.write_all(&chunk).map_err(ErrorInternalServerError)?;
+    }
+    file.flush().map_err(ErrorInternalServerError)?;
+    drop(file);
+    if received == 0 {
+        let _ = fs::remove_file(&file_path);
+        return Err(ErrorBadRequest("empty upload"));
+    }
+
+    images::cache_single_image_meta(storage.clone().into_inner(), cache.into_inner(), image_id.clone())
+        .map_err(ErrorInternalServerError)?;
+    site::record_activity(&storage, "Photo uploaded", &format!("{} to {}", query.filename, query.gallery))
+        .map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Created().json(serde_json::json!({ "id": image_id, "gallery": query.gallery, "bytes": received })))
+}
+
+#[post("/cache/flush")]
+async fn flush_cache(cfg: Data<Config>, cache: Data<CacheDriver<Image>>, token: Token) -> Result<HttpResponse, Error> {
+    check_token(&cfg, &token)?;
+    cache.flush().map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+pub fn configure(cfg: &mut ServiceConfig) {
+    cfg.service(get_admin_site).service(update_site).service(dashboard)
+        .service(create_gallery).service(upload_image).service(flush_cache);
+}
+fn check_token(cfg: &Config, token: &Token) -> Result<(), Error> {
+    let Some(adminkey) = &cfg.adminkey else { return Err(ErrorBadRequest("no admin API key configured")); };
+    let Token::Bearer(token) = token else { return Err(ErrorBadRequest("no admin API key provided in request")); };
+    if adminkey != token { return Err(ErrorUnauthorized("unauthorized")); }
+    Ok(())
+}
