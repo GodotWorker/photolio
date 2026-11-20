@@ -69,7 +69,7 @@ async fn dashboard(
     let used_bytes = storage.content_size().map_err(ErrorInternalServerError)?;
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "photo_count": photo_count, "gallery_count": settings.galleries.len(),
-        "used_bytes": used_bytes, "limit_bytes": *max_storage_bytes, "activity": settings.activity
+        "used_bytes": used_bytes, "limit_bytes": **max_storage_bytes, "activity": settings.activity
     })))
 }
 
@@ -108,7 +108,7 @@ async fn upload_image(
     // Serializing uploads prevents concurrent requests from overshooting the total site quota.
     let _quota_guard = upload_lock.lock().await;
     let used_before = storage.content_size().map_err(ErrorInternalServerError)?;
-    if used_before >= *max_storage_bytes { return Err(ErrorPayloadTooLarge("storage limit reached")); }
+    if used_before >= **max_storage_bytes { return Err(ErrorPayloadTooLarge("storage limit reached")); }
 
     let original_name = Path::new(&query.filename).file_name().and_then(|s| s.to_str()).unwrap_or("photo");
     let safe_name: String = original_name.chars()
@@ -124,7 +124,7 @@ async fn upload_image(
     while let Some(chunk) = payload.next().await {
         let chunk = chunk.map_err(ErrorBadRequest)?;
         received = received.saturating_add(chunk.len() as u64);
-        if used_before.saturating_add(received) > *max_storage_bytes {
+        if used_before.saturating_add(received) > **max_storage_bytes {
             drop(file);
             let _ = fs::remove_file(&file_path);
             return Err(ErrorPayloadTooLarge("100 GB storage limit reached"));
