@@ -1,13 +1,14 @@
-FROM rust:slim AS build
+FROM rust:1-bookworm AS build
 WORKDIR /build
-COPY backend backend
-COPY Cargo.lock .
-COPY Cargo.toml .
-RUN cargo build --release --package backend
+COPY Cargo.toml Cargo.lock ./
+COPY backend ./backend
+RUN cargo build --release --locked --package backend
 
 FROM debian:bookworm-slim AS release
-COPY --from=build /build/target/release/backend /bin/backend
-ENV PH_STORAGE_LOCATION="/var/data"
-VOLUME [ "/var/data" ]
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /build/target/release/backend /usr/local/bin/photolio
+ENV PH_STORAGE_LOCATION=/var/data PH_SERVER_PORT=80 PH_SERVER_ADDRESS=0.0.0.0 PH_STORAGE_MAX_BYTES=100000000000
+RUN mkdir -p /var/data
+VOLUME ["/var/data"]
 EXPOSE 80
-ENTRYPOINT [ "/bin/backend" ]
+ENTRYPOINT ["/usr/local/bin/photolio"]
